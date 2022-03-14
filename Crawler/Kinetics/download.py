@@ -2,8 +2,11 @@ import argparse
 import glob
 import json
 import os
+import pandas as pd
 import shutil
 import subprocess
+import sys
+import time
 import uuid
 from collections import OrderedDict
 
@@ -162,10 +165,41 @@ def parse_kinetics_annotations(input_csv, ignore_is_cc=False):
     return df
 
 
+def create_continue_csv(input_csv, output_dir, tmp_dir='/tmp/kinetics'):
+    # clean tmp dir.
+    try:
+        shutil.rmtree(tmp_dir)
+    except FileNotFoundError:
+        pass
+    # get downloaded files names
+    filelist = []
+
+    for root, dirs, files in os.walk(output_dir):
+        for file in files:
+            if file.endswith(".mp4"):
+                filelist.append("_".join(file.split('_')[:-2]))
+
+    # discard all downloaded files
+    data = pd.read_csv(input_csv)
+    data = data[~data['youtube_id'].isin(filelist)]
+
+    sample = os.path.basename(input_csv).split(".")[0].split("_")[0]
+    print(f"Create {sample}_continue.csv")
+    new_csv = os.path.join(os.path.dirname(input_csv), f'{sample}_continue.csv')
+    data.to_csv(new_csv, index=False)
+
+    return new_csv
+
+
 def main(input_csv, output_dir,
          trim_format='%06d', num_jobs=24, tmp_dir='/tmp/kinetics',
-         drop_duplicates=False):
+         drop_duplicates=False, proceed=False):
 
+    if proceed:
+        input_csv = create_continue_csv(input_csv, output_dir, tmp_dir)
+        print("Resume download...")
+    else:
+        print("Start download...")
     # Reading and parsing Kinetics.
     dataset = parse_kinetics_annotations(input_csv)
     # if os.path.isfile(drop_duplicates):
@@ -192,12 +226,12 @@ def main(input_csv, output_dir,
             row, label_to_dir,
             trim_format, tmp_dir) for i, row in dataset.iterrows())
 
-    # Clean tmp dir.
+#     Clean tmp dir.
     shutil.rmtree(tmp_dir)
 
     # Save download report.
-    with open('download_report.json', 'w') as fobj:
-        fobj.write(json.dumps(status_lst))
+#     with open('download_report.json', 'w') as fobj:
+#         fobj.write(json.dumps(status_lst))
 
 
 if __name__ == '__main__':
@@ -216,5 +250,7 @@ if __name__ == '__main__':
     p.add_argument('-t', '--tmp-dir', type=str, default='/tmp/kinetics')
     p.add_argument('--drop-duplicates', type=str, default='non-existent',
                    help='Unavailable at the moment')
+    p.add_argument('--proceed', action="store_true",
+                   help='Proceed from the last downloaded file')
                    # help='CSV file of the previous version of Kinetics.')
     main(**vars(p.parse_args()))
